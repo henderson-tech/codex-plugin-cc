@@ -111,9 +111,15 @@ async function isBrokerEndpointReady(endpoint) {
 }
 
 export async function ensureBrokerSession(cwd, options = {}) {
+  const env = options.env ?? process.env;
+  // The broker's app-server bills the CODEX_HOME it was spawned with (henderson
+  // fork). A live broker on another account is left to the job it may be
+  // serving, and this run goes direct — null is the same fallback upstream
+  // takes for a busy broker.
+  const codexHome = env.CODEX_HOME ?? null;
   const existing = loadBrokerSession(cwd);
   if (existing && (await isBrokerEndpointReady(existing.endpoint))) {
-    return existing;
+    return (existing.codexHome ?? null) === codexHome ? existing : null;
   }
 
   if (existing) {
@@ -143,7 +149,7 @@ export async function ensureBrokerSession(cwd, options = {}) {
     endpoint,
     pidFile,
     logFile,
-    env: options.env ?? process.env
+    env
   });
 
   const ready = await waitForBrokerEndpoint(endpoint, options.timeoutMs ?? 2000);
@@ -164,7 +170,8 @@ export async function ensureBrokerSession(cwd, options = {}) {
     pidFile,
     logFile,
     sessionDir,
-    pid: child.pid ?? null
+    pid: child.pid ?? null,
+    codexHome
   };
   saveBrokerSession(cwd, session);
   return session;

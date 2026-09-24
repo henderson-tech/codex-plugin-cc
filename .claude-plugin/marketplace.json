@@ -1,17 +1,17 @@
 {
-  "name": "openai-codex",
+  "name": "henderson-codex",
   "owner": {
-    "name": "OpenAI"
+    "name": "henderson-tech"
   },
   "metadata": {
-    "description": "Codex plugins to use in Claude Code for delegation and code review.",
-    "version": "1.0.6"
+    "description": "Codex in Claude Code, routed through claude-switcheroo (henderson-tech fork of openai/codex-plugin-cc).",
+    "version": "1.0.6-henderson.1"
   },
   "plugins": [
     {
       "name": "codex",
-      "description": "Use Codex from Claude Code to review code or delegate tasks.",
-      "version": "1.0.6",
+      "description": "Codex review and delegation, billed to the switcheroo account with the most headroom; gpt-6-astra by default.",
+      "version": "1.0.6-henderson.1",
       "author": {
         "name": "OpenAI"
       },

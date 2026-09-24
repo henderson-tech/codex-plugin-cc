@@ -53,6 +53,7 @@ import {
   SESSION_ID_ENV
 } from "./lib/tracked-jobs.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
+import { applyAccount, withAccountFailover } from "./lib/switcheroo.mjs";
 import {
   renderNativeReviewResult,
   renderReviewResult,
@@ -70,6 +71,11 @@ const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
+// henderson fork: the same pins as switcheroo's `cx`; --model / --effort still win.
+const DEFAULT_MODEL = "gpt-6-astra";
+const DEFAULT_EFFORT = "medium";
+// Subcommands that start Codex — they bill an account, so they are routed.
+const ROUTED_SUBCOMMANDS = new Set(["setup", "review", "adversarial-review", "task", "task-worker", "transfer"]);
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
 
 function printUsage() {
@@ -367,11 +373,11 @@ async function executeReviewRun(request) {
   const reviewName = request.reviewName ?? "Review";
   if (reviewName === "Review") {
     const reviewTarget = validateNativeReviewRequest(target, focusText);
-    const result = await runAppServerReview(request.cwd, {
+    const result = await withAccountFailover(() => runAppServerReview(request.cwd, {
       target: reviewTarget,
       model: request.model,
       onProgress: request.onProgress
-    });
+    }));
     const payload = {
       review: reviewName,
       target,
@@ -408,13 +414,13 @@ async function executeReviewRun(request) {
 
   const context = collectReviewContext(request.cwd, target);
   const prompt = buildAdversarialReviewPrompt(context, focusText);
-  const result = await runAppServerTurn(context.repoRoot, {
+  const result = await withAccountFailover(() => runAppServerTurn(context.repoRoot, {
     prompt,
     model: request.model,
     sandbox: "read-only",
     outputSchema: readOutputSchema(REVIEW_SCHEMA),
     onProgress: request.onProgress
-  });
+  }));
   const parsed = parseStructuredOutput(result.finalMessage, {
     status: result.status,
     failureMessage: result.error?.message ?? result.stderr
@@ -482,7 +488,7 @@ async function executeTaskRun(request) {
     throw new Error("Provide a prompt, a prompt file, piped stdin, or use --resume-last.");
   }
 
-  const result = await runAppServerTurn(workspaceRoot, {
+  const result = await withAccountFailover(() => runAppServerTurn(workspaceRoot, {
     resumeThreadId,
     prompt: request.prompt,
     defaultPrompt: resumeThreadId ? DEFAULT_CONTINUE_PROMPT : "",
@@ -492,7 +498,7 @@ async function executeTaskRun(request) {
     onProgress: request.onProgress,
     persistThread: true,
     threadName: resumeThreadId ? null : buildPersistentTaskThreadName(request.prompt || DEFAULT_CONTINUE_PROMPT)
-  });
+  }));
 
   const rawOutput = typeof result.finalMessage === "string" ? result.finalMessage : "";
   const failureMessage = result.error?.message ?? result.stderr ?? "";
@@ -743,7 +749,7 @@ async function handleReviewCommand(argv, config) {
         cwd,
         base: options.base,
         scope: options.scope,
-        model: options.model,
+        model: normalizeRequestedModel(options.model) ?? DEFAULT_MODEL,
         focusText,
         reviewName: config.reviewName,
         onProgress: progress
@@ -770,8 +776,8 @@ async function handleTask(argv) {
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
-  const model = normalizeRequestedModel(options.model);
-  const effort = normalizeReasoningEffort(options.effort);
+  const model = normalizeRequestedModel(options.model) ?? DEFAULT_MODEL;
+  const effort = normalizeReasoningEffort(options.effort) ?? DEFAULT_EFFORT;
   const prompt = readTaskPrompt(cwd, options, positionals);
 
   const resumeLast = Boolean(options["resume-last"] || options.resume);
@@ -1026,6 +1032,13 @@ async function main() {
   if (!subcommand || subcommand === "help" || subcommand === "--help") {
     printUsage();
     return;
+  }
+
+  if (ROUTED_SUBCOMMANDS.has(subcommand)) {
+    const account = applyAccount();
+    if (account && !account.inherited) {
+      process.stderr.write(`codex account: ${account.name} (${account.weeklyLeftPct ?? "?"}% weekly left, via switcheroo)\n`);
+    }
   }
 
   switch (subcommand) {

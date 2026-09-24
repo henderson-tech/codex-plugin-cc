@@ -2,6 +2,22 @@
 
 Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex.
 
+> **henderson-tech fork.** Four changes on top of `openai/codex-plugin-cc`. Everything else follows upstream.
+>
+> - **Account routing:** every run bills the Codex account
+>   [claude-switcheroo](https://github.com/henderson-tech/claude-switcheroo) ranks highest
+>   (`switcheroo codex pick`), not whatever login `~/.codex` holds. An explicit `CODEX_HOME` still
+>   wins. Without switcheroo, or with no switcheroo Codex accounts, it behaves exactly like upstream.
+> - **Limit failover:** a task or review that dies on "usage limit" retries once on the next account
+>   and says which one.
+> - **Defaults:** `gpt-6-astra` at `medium` effort, like switcheroo's `cx`; `--model` and `--effort`
+>   still override.
+> - **No model pin** on the `codex-rescue` agent: it inherits your session model.
+>
+> The broker is keyed by `CODEX_HOME`, so a run never reuses an app-server that bills another account.
+> Install with `/plugin marketplace add henderson-tech/codex-plugin-cc`, then `/plugin install codex@henderson-codex`.
+> The routing lives in `plugins/codex/scripts/lib/switcheroo.mjs`. Rebase on upstream `main` to update.
+
 This plugin is for Claude Code users who want an easy way to start using Codex from the workflow
 they already have.
 
