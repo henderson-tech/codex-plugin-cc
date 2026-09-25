@@ -10,6 +10,16 @@ import { BROKER_BUSY_RPC_CODE, CodexAppServerClient } from "./lib/app-server.mjs
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
 
 const STREAMING_METHODS = new Set(["turn/start", "review/start", "thread/compact/start"]);
+// SessionEnd is the only other thing that stops a broker, and a killed or
+// crashed session never runs it; with no client connected for this long the
+// broker exits on its own, and the next command starts a fresh one (henderson fork).
+const IDLE_TIMEOUT_ENV = "CODEX_COMPANION_BROKER_IDLE_MS";
+const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
+function resolveIdleTimeoutMs() {
+  const parsed = Number.parseInt(process.env[IDLE_TIMEOUT_ENV] ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_IDLE_TIMEOUT_MS;
+}
 
 function buildStreamThreadIds(method, params, result) {
   const threadIds = new Set();
@@ -113,9 +123,24 @@ async function main() {
     }
   }
 
+  const idleTimeoutMs = resolveIdleTimeoutMs();
+  let idleTimer = null;
+
+  function armIdleTimer() {
+    clearTimeout(idleTimer);
+    if (sockets.size > 0) {
+      return;
+    }
+    idleTimer = setTimeout(async () => {
+      await shutdown(server);
+      process.exit(0);
+    }, idleTimeoutMs);
+  }
+
   appClient.setNotificationHandler(routeNotification);
 
   const server = net.createServer((socket) => {
+    clearTimeout(idleTimer);
     sockets.add(socket);
     socket.setEncoding("utf8");
     let buffer = "";
@@ -225,11 +250,13 @@ async function main() {
     socket.on("close", () => {
       sockets.delete(socket);
       clearSocketOwnership(socket);
+      armIdleTimer();
     });
 
     socket.on("error", () => {
       sockets.delete(socket);
       clearSocketOwnership(socket);
+      armIdleTimer();
     });
   });
 
@@ -244,6 +271,7 @@ async function main() {
   });
 
   server.listen(listenTarget.path);
+  armIdleTimer();
 }
 
 main().catch((error) => {
