@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Codex in Claude Code, routed through claude-switcheroo (henderson-tech fork of openai/codex-plugin-cc).",
-    "version": "1.0.6-henderson.1"
+    "version": "1.0.6-henderson.2"
   },
   "plugins": [
     {
       "name": "codex",
-      "description": "Codex review and delegation, billed to the switcheroo account with the most headroom; gpt-6-astra by default.",
-      "version": "1.0.6-henderson.1",
+      "description": "Codex review and delegation, billed to the switcheroo account with the most headroom; gpt-6-sol by default.",
+      "version": "1.0.6-henderson.2",
       "author": {
         "name": "OpenAI"
       },

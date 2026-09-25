@@ -10,7 +10,7 @@ Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex
 >   wins. Without switcheroo, or with no switcheroo Codex accounts, it behaves exactly like upstream.
 > - **Limit failover:** a task or review that dies on "usage limit" retries once on the next account
 >   and says which one.
-> - **Defaults:** `gpt-6-astra` at `medium` effort, like switcheroo's `cx`; `--model` and `--effort`
+> - **Defaults:** `gpt-6-sol` at `medium` effort, like switcheroo's `cxx`; `--model` and `--effort`
 >   still override.
 > - **No model pin** on the `codex-rescue` agent: it inherits your session model.
 >

@@ -71,8 +71,8 @@ const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
-// henderson fork: the same pins as switcheroo's `cx`; --model / --effort still win.
-const DEFAULT_MODEL = "gpt-6-astra";
+// henderson fork: the same pins as switcheroo's `cxx`; --model / --effort still win.
+const DEFAULT_MODEL = "gpt-6-sol";
 const DEFAULT_EFFORT = "medium";
 // Subcommands that start Codex — they bill an account, so they are routed.
 const ROUTED_SUBCOMMANDS = new Set(["setup", "review", "adversarial-review", "task", "task-worker", "transfer"]);
