@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { buildEnv, installFakeCodex } from "./fake-codex-fixture.mjs";
 import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
-import { loadBrokerSession, saveBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.mjs";
+import { ensureBrokerSession, loadBrokerSession, saveBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.mjs";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -2204,6 +2204,89 @@ test("setup reuses an existing shared app-server without starting another one", 
     })
   });
   assert.equal(cleanup.status, 0, cleanup.stderr);
+});
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A stand-in broker that starts but never listens, like one whose app-server
+// is too slow to come up on a loaded machine.
+function writeStuckBroker(dir) {
+  const scriptPath = path.join(dir, "stuck-broker.mjs");
+  const pidLog = path.join(dir, "stuck-pids.log");
+  fs.writeFileSync(
+    scriptPath,
+    `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(pidLog)}, process.pid + "\\n");\nsetInterval(() => {}, 1000);\n`
+  );
+  const readPids = () =>
+    fs.existsSync(pidLog) ? fs.readFileSync(pidLog, "utf8").trim().split("\n").filter(Boolean).map(Number) : [];
+  // By command line, not the pid log: a broker killed before node finishes
+  // booting never gets to write its pid.
+  const noneRunning = () => run("pgrep", ["-f", scriptPath]).status === 1;
+  return { scriptPath, readPids, noneRunning };
+}
+
+test("ensureBrokerSession kills the brokers it gives up on instead of orphaning them", async () => {
+  const repo = makeTempDir();
+  const { scriptPath, readPids, noneRunning } = writeStuckBroker(makeTempDir());
+
+  const stale = spawn(process.execPath, [scriptPath], { detached: true, stdio: "ignore" });
+  stale.unref();
+  await waitFor(() => readPids().includes(stale.pid));
+  saveBrokerSession(repo, {
+    endpoint: `unix:${path.join(makeTempDir(), "gone.sock")}`,
+    pidFile: null,
+    logFile: null,
+    sessionDir: null,
+    pid: stale.pid
+  });
+
+  const session = await ensureBrokerSession(repo, { scriptPath, timeoutMs: 1000 });
+
+  assert.equal(session, null);
+  assert.equal(loadBrokerSession(repo), null);
+  await waitFor(() => !isProcessAlive(stale.pid) && noneRunning());
+});
+
+test("ensureBrokerSession never kills a stale pid that no longer runs the broker", async () => {
+  const repo = makeTempDir();
+  const { scriptPath, noneRunning } = writeStuckBroker(makeTempDir());
+  const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  try {
+    saveBrokerSession(repo, {
+      endpoint: `unix:${path.join(makeTempDir(), "gone.sock")}`,
+      pidFile: null,
+      logFile: null,
+      sessionDir: null,
+      pid: unrelated.pid
+    });
+
+    await ensureBrokerSession(repo, { scriptPath, timeoutMs: 500 });
+
+    assert.equal(isProcessAlive(unrelated.pid), true);
+    await waitFor(noneRunning);
+  } finally {
+    unrelated.kill();
+  }
+});
+
+test("an idle broker with no clients shuts itself down", async () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  const env = { ...buildEnv(binDir), CODEX_COMPANION_BROKER_IDLE_MS: "300" };
+
+  const session = await ensureBrokerSession(repo, { env, timeoutMs: 5000 });
+
+  assert.ok(session, "broker should start against the fake codex");
+  await waitFor(() => !isProcessAlive(session.pid));
+  assert.equal(fs.existsSync(session.pidFile), false);
 });
 
 test("status reports shared session runtime when a lazy broker is active", () => {

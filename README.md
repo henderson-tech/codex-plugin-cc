@@ -2,7 +2,7 @@
 
 Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex.
 
-> **henderson-tech fork.** Four changes on top of `openai/codex-plugin-cc`. Everything else follows upstream.
+> **henderson-tech fork.** Five changes on top of `openai/codex-plugin-cc`. Everything else follows upstream.
 >
 > - **Account routing:** every run bills the Codex account
 >   [claude-switcheroo](https://github.com/henderson-tech/claude-switcheroo) ranks highest
@@ -13,6 +13,9 @@ Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex
 > - **Defaults:** `gpt-6-sol` at `medium` effort, like switcheroo's `cxx`; `--model` and `--effort`
 >   still override.
 > - **No model pin** on the `codex-rescue` agent: it inherits your session model.
+> - **No orphaned brokers:** a broker the companion gives up on (missed readiness window, stale
+>   session) is killed rather than left running, and a broker with no client for 10 minutes exits on
+>   its own (`CODEX_COMPANION_BROKER_IDLE_MS`), so a session killed before SessionEnd leaks nothing.
 >
 > The broker is keyed by `CODEX_HOME`, so a run never reuses an app-server that bills another account.
 > Install with `/plugin marketplace add henderson-tech/codex-plugin-cc`, then `/plugin install codex@henderson-codex`.

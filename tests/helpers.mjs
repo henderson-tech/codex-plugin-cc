@@ -4,6 +4,10 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 
+// Most tests start a broker and never run SessionEnd; a short idle timeout
+// makes those brokers exit shortly after the suite instead of living forever.
+process.env.CODEX_COMPANION_BROKER_IDLE_MS ??= "30000";
+
 export function makeTempDir(prefix = "codex-plugin-test-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
