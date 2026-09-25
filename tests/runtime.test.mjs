@@ -2232,15 +2232,19 @@ function writeStuckBroker(dir) {
   return { scriptPath, readPids, noneRunning };
 }
 
-test("ensureBrokerSession kills the brokers it gives up on instead of orphaning them", async () => {
+// Stale-pid identity reads `ps`, which win32 does not have (see isBrokerProcess).
+const UNIX_ONLY = { skip: process.platform === "win32" };
+
+test("ensureBrokerSession kills the brokers it gives up on instead of orphaning them", UNIX_ONLY, async () => {
   const repo = makeTempDir();
   const { scriptPath, readPids, noneRunning } = writeStuckBroker(makeTempDir());
+  const endpoint = `unix:${path.join(makeTempDir(), "gone.sock")}`;
 
-  const stale = spawn(process.execPath, [scriptPath], { detached: true, stdio: "ignore" });
+  const stale = spawn(process.execPath, [scriptPath, "serve", "--endpoint", endpoint], { detached: true, stdio: "ignore" });
   stale.unref();
   await waitFor(() => readPids().includes(stale.pid));
   saveBrokerSession(repo, {
-    endpoint: `unix:${path.join(makeTempDir(), "gone.sock")}`,
+    endpoint,
     pidFile: null,
     logFile: null,
     sessionDir: null,
@@ -2254,11 +2258,15 @@ test("ensureBrokerSession kills the brokers it gives up on instead of orphaning 
   await waitFor(() => !isProcessAlive(stale.pid) && noneRunning());
 });
 
-test("ensureBrokerSession never kills a stale pid that no longer runs the broker", async () => {
+test("ensureBrokerSession never kills a stale pid that is not this session's broker", UNIX_ONLY, async () => {
   const repo = makeTempDir();
   const { scriptPath, noneRunning } = writeStuckBroker(makeTempDir());
-  const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  // What a reused pid can look like: the same script name, another session's endpoint.
+  const other = writeStuckBroker(makeTempDir());
+  const otherEndpoint = `unix:${path.join(makeTempDir(), "other.sock")}`;
+  const unrelated = spawn(process.execPath, [other.scriptPath, "serve", "--endpoint", otherEndpoint], { stdio: "ignore" });
   try {
+    await waitFor(() => other.readPids().includes(unrelated.pid));
     saveBrokerSession(repo, {
       endpoint: `unix:${path.join(makeTempDir(), "gone.sock")}`,
       pidFile: null,

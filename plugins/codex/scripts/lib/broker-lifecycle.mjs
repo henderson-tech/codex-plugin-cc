@@ -112,15 +112,22 @@ async function isBrokerEndpointReady(endpoint, timeoutMs) {
   }
 }
 
-// A dead broker's pid may since have been reused, so only a process still
-// running the broker script is ours to kill. win32 has no cheap command-line
-// probe, so there a stale broker is left alone as before (henderson fork).
-export function isBrokerProcess(pid, { scriptPath = BROKER_SCRIPT_NAME, platform = process.platform, runCommandImpl = runCommand } = {}) {
-  if (!Number.isFinite(pid) || platform === "win32") {
+// A dead broker's pid may since have been reused, so a pid is ours to kill only
+// while it still runs the broker script for THIS session: the endpoint is a
+// fresh temp path per session, so no other process carries it. win32 has no
+// cheap command-line probe, so there a stale broker is left alone as before
+// (henderson fork).
+export function isBrokerProcess(pid, endpoint, { scriptPath = BROKER_SCRIPT_NAME, platform = process.platform, runCommandImpl = runCommand } = {}) {
+  if (!Number.isFinite(pid) || !endpoint || platform === "win32") {
     return false;
   }
-  const result = runCommandImpl("ps", ["-p", String(pid), "-o", "command="]);
-  return !result.error && result.status === 0 && result.stdout.includes(path.basename(scriptPath));
+  // -ww: BSD and procps ps may cut the command at the terminal width.
+  const result = runCommandImpl("ps", ["-ww", "-p", String(pid), "-o", "command="]);
+  if (result.error || result.status !== 0) {
+    return false;
+  }
+  const command = result.stdout.trim();
+  return command.includes(path.basename(scriptPath)) && command.includes(`--endpoint ${endpoint}`);
 }
 
 export async function ensureBrokerSession(cwd, options = {}) {
@@ -141,7 +148,9 @@ export async function ensureBrokerSession(cwd, options = {}) {
   const existing = loadBrokerSession(cwd);
   // A live broker on a loaded machine can miss a 150 ms probe; it gets the
   // spawn budget before it is declared dead.
-  const existingAlive = existing ? isBrokerProcess(existing.pid ?? Number.NaN, { scriptPath, platform: options.platform }) : false;
+  const isExistingBroker = () =>
+    isBrokerProcess(existing.pid ?? Number.NaN, existing.endpoint, { scriptPath, platform: options.platform });
+  const existingAlive = existing ? isExistingBroker() : false;
   if (existing && (await isBrokerEndpointReady(existing.endpoint, existingAlive ? timeoutMs : 150))) {
     return (existing.codexHome ?? null) === codexHome ? existing : null;
   }
@@ -153,7 +162,9 @@ export async function ensureBrokerSession(cwd, options = {}) {
       logFile: existing.logFile ?? null,
       sessionDir: existing.sessionDir ?? null,
       pid: existing.pid ?? null,
-      killProcess: existingAlive ? killProcess : null
+      // Re-checked right before the signal: the probe above can take the whole
+      // spawn budget, long enough for the broker to exit and its pid be reused.
+      killProcess: existingAlive && isExistingBroker() ? killProcess : null
     });
     clearBrokerSession(cwd);
   }
