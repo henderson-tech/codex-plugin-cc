@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   ci:
+    if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'skip-ci')
     name: CI
     runs-on: ubuntu-latest
     timeout-minutes: 10
