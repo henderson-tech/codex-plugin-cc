@@ -8,6 +8,11 @@ import { spawnSync } from "node:child_process";
 // makes those brokers exit shortly after the suite instead of living forever.
 process.env.CODEX_COMPANION_BROKER_IDLE_MS ??= "30000";
 
+// A suite run from inside Claude Code inherits the host session's plugin env,
+// which re-roots state and filters jobs by that session; the tests assume none.
+delete process.env.CLAUDE_PLUGIN_DATA;
+delete process.env.CODEX_COMPANION_SESSION_ID;
+
 export function makeTempDir(prefix = "codex-plugin-test-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
