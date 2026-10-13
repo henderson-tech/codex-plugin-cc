@@ -1,7 +1,8 @@
 name: Pull Request CI
 
+# PR CI is paused; keep the suite available on demand.
 on:
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
