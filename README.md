@@ -7,24 +7,22 @@ Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex
 > - **Account routing:** every run bills the Codex account
 >   [claude-switcheroo](https://github.com/henderson-tech/claude-switcheroo) ranks highest
 >   (`switcheroo codex pick`), not whatever login `~/.codex` holds. An explicit `CODEX_HOME` still
->   wins. Without switcheroo, or with no switcheroo Codex accounts, it behaves exactly like upstream.
+>   wins. Without switcheroo, or with no switcheroo Codex accounts, account selection behaves exactly like upstream.
 > - **Limit failover:** a task or review that dies on "usage limit" retries once on the next account
 >   and says which one.
-> - **Defaults:** `gpt-6.1-sol` at `medium` effort, the model of switcheroo's `cxx` and `codex run` sidekick; `--model` and `--effort`
->   still override.
+> - **Defaults:** `gpt-6.1-sol` (the model of switcheroo's `cxx` and `codex run` sidekick), at `medium` effort for tasks;
+>   [Codex Integration](#codex-integration) says where each default applies and what overrides it.
 > - **No model pin** on the `codex-rescue` agent: it inherits your session model.
 > - **No orphaned brokers:** a broker the companion gives up on (missed readiness window, stale
 >   session) is killed rather than left running, and a broker with no client for 10 minutes exits on
 >   its own (`CODEX_COMPANION_BROKER_IDLE_MS`), so a session killed before SessionEnd leaks nothing.
 >
 > The broker is keyed by `CODEX_HOME`, so a run never reuses an app-server that bills another account.
-> Install with `/plugin marketplace add henderson-tech/codex-plugin-cc`, then `/plugin install codex@henderson-codex`.
+> Install this fork as described in [Install](#install).
 > The routing lives in `plugins/codex/scripts/lib/switcheroo.mjs`. Rebase on upstream `main` to update.
 
 This plugin is for Claude Code users who want an easy way to start using Codex from the workflow
 they already have.
-
-<video src="./docs/plugin-demo.webm" controls muted playsinline autoplay></video>
 
 ## What You Get
 
@@ -43,13 +41,13 @@ they already have.
 Add the marketplace in Claude Code:
 
 ```bash
-/plugin marketplace add openai/codex-plugin-cc
+/plugin marketplace add henderson-tech/codex-plugin-cc
 ```
 
 Install the plugin:
 
 ```bash
-/plugin install codex@openai-codex
+/plugin install codex@henderson-codex
 ```
 
 Reload plugins:
@@ -77,6 +75,8 @@ If Codex is installed but not logged in yet, run:
 ```bash
 !codex login
 ```
+
+When switcheroo routes runs to an account, they use that account's sign-in instead; see [Codex Integration](#codex-integration).
 
 After install, you should see:
 
@@ -177,7 +177,7 @@ Ask Codex to redesign the database connection to be more resilient.
 
 **Notes:**
 
-- if you do not pass `--model` or `--effort`, Codex chooses its own defaults.
+- if you do not pass `--model` or `--effort`, the fork's task defaults apply; see [Codex Integration](#codex-integration).
 - if you say `spark`, the plugin maps that to `gpt-5.3-codex-spark`
 - follow-up rescue requests can continue the latest Codex task in the repo
 
@@ -285,20 +285,27 @@ Then check in with:
 
 ## Codex Integration
 
-The Codex plugin wraps the [Codex app server](https://developers.openai.com/codex/app-server). It uses the global `codex` binary installed in your environment and [applies the same configuration](https://developers.openai.com/codex/config-basic).
+The Codex plugin wraps the [Codex app server](https://developers.openai.com/codex/app-server). It uses the global `codex` binary installed in your environment and the [configuration](https://developers.openai.com/codex/config-basic) of the active Codex home, within the fork rules below.
+
+**Account and sign-in.** A run uses the sign-in and `config.toml` of its active Codex home:
+
+- A `CODEX_HOME` you set yourself wins.
+- Otherwise the home of the account `switcheroo codex pick` names. The processes a run starts keep that account.
+- Without switcheroo, or with no switcheroo Codex accounts, the normal Codex home (`~/.codex`).
+- If switcheroo is installed but cannot pick an account, the command fails rather than billing a guessed account.
+- Usage-limit failover only moves a run switcheroo picked, at most once, and only when another account is available.
+
+**Model and effort.**
+
+- Tasks (`/codex:rescue` and delegated tasks) use `--model` and `--effort` when given, otherwise `gpt-6.1-sol` at `medium` effort.
+- The review gate's `Stop` hook review runs as a task without `--model` or `--effort`, so it uses the task defaults.
+- `/codex:review` and `/codex:adversarial-review` use `--model` when given, otherwise `gpt-6.1-sol`. They have no `--effort` option, and the plugin sends no effort for them.
 
 ### Common Configurations
 
-If you want to change the default reasoning effort or the default model that gets used by the plugin, you can define that inside your user-level or project-level `config.toml`. For example to always use `gpt-5.4-mini` on `high` for a specific project you can add the following to a `.codex/config.toml` file at the root of the directory you started Claude in:
+The plugin passes the model on every task and review, and the effort on every task, so `model` and `model_reasoning_effort` in `config.toml` do not change those. Your other configuration will be picked up based on:
 
-```toml
-model = "gpt-5.4-mini"
-model_reasoning_effort = "high"
-```
-
-Your configuration will be picked up based on:
-
-- user-level config in `~/.codex/config.toml`
+- user-level config in the active Codex home's `config.toml` (`~/.codex/config.toml` unless `CODEX_HOME` or switcheroo selects another home)
 - project-level overrides in `.codex/config.toml`
 - project-level overrides only load when the [project is trusted](https://developers.openai.com/codex/config-advanced#project-config-files-codexconfigtoml)
 
@@ -306,7 +313,7 @@ Check out the Codex docs for more [configuration options](https://developers.ope
 
 ### Moving The Work Over To Codex
 
-Delegated tasks and any [stop gate](#what-does-the-review-gate-do) run can also be directly resumed inside Codex by running `codex resume` either with the specific session ID you received from running `/codex:result` or `/codex:status` or by selecting it from the list.
+Delegated tasks and any [stop gate](#enabling-review-gate) run can also be directly resumed inside Codex by running `codex resume` either with the specific session ID you received from running `/codex:result` or `/codex:status` or by selecting it from the list.
 
 This way you can review the Codex work or continue the work there.
 
@@ -314,7 +321,7 @@ This way you can review the Codex work or continue the work there.
 
 ### Do I need a separate Codex account for this plugin?
 
-If you are already signed into Codex on this machine, that account should work immediately here too. This plugin uses your local Codex CLI authentication.
+If you are already signed into Codex on this machine, that account should work immediately here too, unless switcheroo routes runs to another account. This plugin uses the local Codex CLI authentication of the active Codex home; see [Codex Integration](#codex-integration).
 
 If you only use Claude Code today and have not used Codex yet, you will also need to sign in to Codex with either a ChatGPT account or an API key. [Codex is available with your ChatGPT subscription](https://developers.openai.com/codex/pricing/), and [`codex login`](https://developers.openai.com/codex/cli/reference/#codex-login) supports both ChatGPT and API key sign-in. Run `/codex:setup` to check whether Codex is ready, and use `!codex login` if it is not.
 
@@ -325,15 +332,15 @@ No. This plugin delegates through your local [Codex CLI](https://developers.open
 That means:
 
 - it uses the same Codex install you would use directly
-- it uses the same local authentication state
+- it uses the local authentication state of the active Codex home ([Codex Integration](#codex-integration))
 - it uses the same repository checkout and machine-local environment
 
 ### Will it use the same Codex config I already have?
 
-Yes. If you already use Codex, the plugin picks up the same [configuration](#common-configurations).
+Yes, from the active Codex home, except the model and task effort the plugin passes; see [Common Configurations](#common-configurations).
 
 ### Can I keep using my current API key or base URL setup?
 
-Yes. Because the plugin uses your local Codex CLI, your existing sign-in method and config still apply.
+Yes. Because the plugin uses your local Codex CLI, the sign-in method and config of the active Codex home apply ([Codex Integration](#codex-integration)).
 
 If you need to point the built-in OpenAI provider at a different endpoint, set `openai_base_url` in your [Codex config](https://developers.openai.com/codex/config-advanced/#config-and-state-locations).
